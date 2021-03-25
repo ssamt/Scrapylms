@@ -148,8 +148,8 @@ def createWindow():
                         if len(post_link_td.find_all('a')) > 0:
                             post_url = main_url + post_link_td.find('a')['href']
                             title = post_link_td.find('a').text
+                            content = self.downloadPost(post_url, poster)
                             if self.content:
-                                content = self.downloadPost(post_url, poster)
                                 if content != '':
                                     content = f'{title}({poster}): {content}\n\n'
                                     content_file.write(content)
