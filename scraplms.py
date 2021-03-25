@@ -23,15 +23,9 @@ def createWindow():
         setEntry(folderEntry, askdirectory())
 
     def downloadAction():
-        url = urlEntry.get()
-        folder = folderEntry.get()
-        index_f = indexFrom.get()
-        index_t = indexTo.get()
-        id = idEntry.get()
-        pw = pwEntry.get()
-        includePoster = posterVar.get()
-        download = Download(url=url, folder=folder, index_f=index_f, index_t=index_t, id=id, pw=pw,
-                            includePoster=includePoster)
+        download = Download(url=urlEntry.get(), folder=folderEntry.get(), index_f=indexFrom.get(),
+                            index_t=indexTo.get(), id=idEntry.get(), pw=pwEntry.get(),
+                            poster=posterVar.get(), content=contentVar.get())
         download.start()
 
     def message(text):
@@ -45,16 +39,18 @@ def createWindow():
         return int(info[start:end])
 
     class Download(threading.Thread):
-        def __init__(self, url, folder, index_f, index_t, id, pw, includePoster):
+        def __init__(self, url, folder, index_f, index_t, id, pw, poster, content):
             super().__init__()
             self.session = None
             self.url = url
+            self.scBCate = None
             self.folder = folder
             self.index_f = index_f
             self.index_t = index_t
             self.id = id
             self.pw = pw
-            self.includePoster = includePoster
+            self.poster = poster
+            self.content = content
 
         def downloadPost(self, post_url, poster):
             post_html = self.session.get(post_url).text
@@ -69,12 +65,19 @@ def createWindow():
                         for link in links:
                             file_name = link.text
                             file_name = file_name[:file_name.rfind('(')].strip()
-                            if self.includePoster:
+                            if self.poster:
                                 file_name = f'({poster}){file_name}'
                             file_url = main_url + link['href']
                             data = self.session.get(file_url, allow_redirects=True).content
                             store_file = open(f'{self.folder}/{file_name}', 'wb')
                             store_file.write(data)
+                            store_file.close()
+            content = post_soup.find(id='NBoardContetnArea')
+            content = content.find_all('p')
+            content = list(map(lambda x: x.text.strip(), content))
+            content = list(filter(lambda x: x != '', content))
+            content = '\n'.join(content)
+            return content
 
         def run(self):
             if 'http' not in self.url:
@@ -109,7 +112,8 @@ def createWindow():
                 message('LMS에 접속할 수 없음')
                 return None
             self.session = requests.session()
-            if 'location.replace' not in self.session.post(login_url, data={'user_id': self.id, 'user_pwd': self.pw}).text:
+            if 'location.replace' not in self.session.post(login_url, data={'user_id': self.id,
+                                                                            'user_pwd': self.pw}).text:
                 message('로그인 실패')
                 return None
             first_page = self.session.get(board_url, params={'db': 'vod', 'scBCate': self.scBCate}).text
@@ -123,12 +127,15 @@ def createWindow():
                 self.index_t = 1
             elif self.index_t == 0 or self.index_t > post_num:
                 self.index_t = post_num
+            if self.content:
+                content_file = open(f'{self.folder}/_본문.txt', 'w', encoding='utf8')
             download_num = 0
             start_page = (post_num-self.index_t)//posts_in_page+1
             end_page = (post_num-self.index_f)//posts_in_page+1
             post_index = post_num-(start_page-1)*posts_in_page
             for page in range(start_page, end_page+1):
-                page_html = self.session.get(board_url, params={'page': page, 'db': 'vod', 'scBCate': self.scBCate}).text
+                page_html = self.session.get(board_url, params={'page': page, 'db': 'vod',
+                                                                'scBCate': self.scBCate}).text
                 page_soup = BeautifulSoup(page_html, 'html.parser')
                 table = page_soup.find(id='NB_ListTable')
                 tbody = table.find('tbody')
@@ -140,7 +147,12 @@ def createWindow():
                         post_link_td = post_row.find(class_='tdPad4L6px')
                         if len(post_link_td.find_all('a')) > 0:
                             post_url = main_url + post_link_td.find('a')['href']
-                            self.downloadPost(post_url, poster)
+                            title = post_link_td.find('a').text
+                            if self.content:
+                                content = self.downloadPost(post_url, poster)
+                                if content != '':
+                                    content = f'{title}({poster}): {content}\n\n'
+                                    content_file.write(content)
                             download_num += 1
                     post_index -= 1
             download_failed = self.index_t-self.index_f+1-download_num
@@ -149,6 +161,8 @@ def createWindow():
             else:
                 message(f'{download_failed}개 다운로드 실패')
             messagebox.showinfo('Scraplms', '다운로드 완료')
+            if self.content:
+                content_file.close()
             return None
 
     window = tk.Tk()
@@ -200,8 +214,18 @@ def createWindow():
     posterLabel.pack(side='left')
     posterVar = tk.BooleanVar()
     posterCheck = tk.Checkbutton(posterFrame, variable=posterVar)
+    posterCheck.select()
     posterCheck.pack(side='left')
     posterFrame.pack(anchor='w', padx=(padw, pade), pady=(padn, pads))
+
+    contentFrame = tk.Frame()
+    contentLabel = tk.Label(contentFrame, text='본문 다운로드: ')
+    contentLabel.pack(side='left')
+    contentVar = tk.BooleanVar()
+    contentCheck = tk.Checkbutton(contentFrame, variable=contentVar)
+    contentCheck.select()
+    contentCheck.pack(side='left')
+    contentFrame.pack(anchor='w', padx=(padw, pade), pady=(padn, pads))
 
     downloadFrame = tk.Frame()
     downloadButton = tk.Button(downloadFrame, text='다운로드', command=downloadAction)
